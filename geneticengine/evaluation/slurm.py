@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from typing import Iterable
 from geneticengine.evaluation.api import Evaluator
-from geneticengine.problems import Problem
+from geneticengine.problems import Problem,Fitness
 from geneticengine.solutions.individual import Individual
 import subprocess
 class SLURMEvaluator(Evaluator):
@@ -18,7 +18,7 @@ class SLURMEvaluator(Evaluator):
         self.output_parser = output_parser
         self.num_jobs = 0
     def evaluate_async(self, problem: Problem, individuals: Iterable[Individual]):
-
+        '''
         # Save each individual's representation to a file for SLURM processing
         individuals = list(individuals)
         for i, ind in enumerate(individuals):
@@ -38,17 +38,22 @@ class SLURMEvaluator(Evaluator):
         )
         jobid = int(result.stdout.strip().split()[-1])  # Extract job ID from the output
 
+        print(f"Submitted SLURM array job with ID: {jobid}")
         # Wait for SLURM jobs to complete
         self._wait_for_jobs(jobid)
-
+        print("All SLURM jobs completed.")
+        '''
+        individuals = list(individuals)  # Convert the iterator to a list
+        self.num_jobs = len(individuals)
         # Aggregate results
         fitness_results = self._aggregate_results()
         for ind, fitness in zip(individuals, fitness_results):
             ind.set_fitness(problem, fitness)
-            self.register_evaluation()
+            self.register_evaluation(ind, problem)
             yield ind
 
-
+        print("All individuals evaluated.")
+        print(f"Fitness results: {fitness_results}")
     def _wait_for_jobs(self, jobid: int):
         def array_still_running(jobid: int) -> bool:
             """
@@ -69,6 +74,6 @@ class SLURMEvaluator(Evaluator):
         """Aggregate fitness results from all SLURM jobs."""
         fitness_results = []
         for i in range(self.num_jobs):
-            result_file = self.output_dir / f"individuals_out_{i}"
-            fitness_results.append(self.output_parser(result_file))
+            result_file = f"{self.output_dir}/individual_out_{i}"
+            fitness_results.append(Fitness([self.output_parser(result_file)]))
         return fitness_results
