@@ -11,8 +11,8 @@ class Population:
         self.individuals = []
         for ind in it:
             ind.metadata["generation"] = generation
-            self.tracker.evaluate_single(ind)
+            #self.tracker.evaluate_single(ind)
             self.individuals.append(ind)
-
+        self.tracker.evaluate(self.individuals)
     def __iter__(self):
         return iter(self.individuals)

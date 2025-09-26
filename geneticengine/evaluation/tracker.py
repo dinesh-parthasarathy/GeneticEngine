@@ -33,8 +33,8 @@ class ProgressTracker(ABC):
         """The elapsed time since the start in seconds."""
         return (monotonic_ns() - self.start_time) * 0.000000001  # seconds
 
-    def evaluate(self, individuals: Iterable[Individual]): ...
-
+    def evaluate(self, individuals: Iterable[Individual]):
+        self.evaluate(individuals)
     def evaluate_single(self, individual: Individual):
         self.evaluate([individual])
 
