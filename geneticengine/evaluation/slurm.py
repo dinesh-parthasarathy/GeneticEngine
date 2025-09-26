@@ -18,7 +18,6 @@ class SLURMEvaluator(Evaluator):
         self.output_parser = output_parser
         self.num_jobs = 0
     def evaluate_async(self, problem: Problem, individuals: Iterable[Individual]):
-        '''
         # Save each individual's representation to a file for SLURM processing
         individuals = list(individuals)
         for i, ind in enumerate(individuals):
@@ -42,8 +41,6 @@ class SLURMEvaluator(Evaluator):
         # Wait for SLURM jobs to complete
         self._wait_for_jobs(jobid)
         print("All SLURM jobs completed.")
-        '''
-        individuals = list(individuals)  # Convert the iterator to a list
         self.num_jobs = len(individuals)
         # Aggregate results
         fitness_results = self._aggregate_results()
