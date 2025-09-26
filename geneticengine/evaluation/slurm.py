@@ -41,7 +41,6 @@ class SLURMEvaluator(Evaluator):
         # Wait for SLURM jobs to complete
         self._wait_for_jobs(jobid)
         print("All SLURM jobs completed.")
-        self.num_jobs = len(individuals)
         # Aggregate results
         fitness_results = self._aggregate_results()
         for ind, fitness in zip(individuals, fitness_results):
