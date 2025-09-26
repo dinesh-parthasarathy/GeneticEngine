@@ -17,6 +17,7 @@ from geneticengine.algorithms.gp.operators.selection import TournamentSelection
 from geneticengine.algorithms.gp.structure import GeneticStep
 from geneticengine.evaluation.budget import AnyOf, EvaluationBudget, TargetFitness, TimeBudget
 from geneticengine.evaluation.parallel import ParallelEvaluator
+from geneticengine.evaluation.slurm import SLURMEvaluator
 from geneticengine.evaluation.recorder import CSVSearchRecorder, SearchRecorder
 from geneticengine.evaluation.tracker import MultiObjectiveProgressTracker, SingleObjectiveProgressTracker
 from geneticengine.grammar.grammar import Grammar
@@ -75,6 +76,10 @@ class SimpleGP:
         csv_extra_fields: dict[str, Callable[[Any], str]] | None = None,
         only_record_best_individuals: bool = True,
         parallel_evaluation=False,
+        program_generator=None,
+        output_parser=None,
+        eval_dir = "",
+        slurm_script = "",
         # RNG
         seed: int = 0,
         # GP Specific:
@@ -103,6 +108,9 @@ class SimpleGP:
             csv_output,
             only_record_best_individuals,
             parallel_evaluation,
+            program_generator,
+            output_parser,
+            eval_dir, slurm_script,
             csv_extra_fields,
         )
         self.gp = GeneticProgramming(
@@ -211,6 +219,10 @@ class SimpleGP:
         csv_output: str | None,
         only_record_best_individuals: bool = True,
         parallel_evaluation: bool = False,
+        program_generator=None,
+        output_parser=None,
+        eval_dir = "",
+        slurm_script = "",
         csv_extra_fields: dict[str, Callable[[Any], str]] | None = None,
     ):
         recorders: list[SearchRecorder] = []
@@ -226,7 +238,7 @@ class SimpleGP:
                 extra_fields=csv_extra_fields2,
             )
             recorders.append(recorder)
-        ev = SequentialEvaluator() if not parallel_evaluation else ParallelEvaluator()
+        ev = SequentialEvaluator() if not parallel_evaluation else SLURMEvaluator(eval_dir, slurm_script,program_generator,output_parser)
         if problem.number_of_objectives() == 1:
             return SingleObjectiveProgressTracker(problem=problem, evaluator=ev, recorders=recorders)
         else:
