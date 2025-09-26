@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from geneticengine.grammar.decorators import is_builtin
 from geneticengine.grammar.grammar import Grammar
@@ -9,6 +9,7 @@ from geneticengine.solutions.tree import TreeNode
 from geneticengine.grammar.utils import get_arguments
 from geneticengine.grammar.utils import is_abstract
 from geneticengine.grammar.utils import is_terminal
+import dataclasses
 
 
 def relabel_nodes(
@@ -36,41 +37,50 @@ def relabel_nodes(
         distance_to_term = 0
     types_this_way = defaultdict(lambda: [])
     types_this_way[type(i)] = [i]
-    if is_terminal(type(i), non_terminals) and (not isinstance(i, list)):
-        if not is_builtin(type(i)):
-            i.gengy_labeled = True
-            i.gengy_distance_to_term = int(g.expansion_depthing)
-            i.gengy_nodes = int(g.expansion_depthing)
-            i.gengy_weighted_nodes = int(g.expansion_depthing)
-            i.gengy_types_this_way = {type(i): [i]}
+
+    if isinstance(i, list):
+        children = [(type(obj), obj) for obj in i]
+    elif dataclasses.is_dataclass(i):
+        children = [(typ, getattr(i, aname)) for aname, typ in get_arguments(type(i))]
+    elif is_builtin(type(i)):
         return (
             int(g.expansion_depthing),
             int(g.expansion_depthing),
             {type(i): [i]},
             int(g.expansion_depthing),
         )
+    elif is_terminal(type(i), non_terminals):
+        i.gengy_labeled = True
+        i.gengy_distance_to_term = int(g.expansion_depthing)
+        i.gengy_nodes = int(g.expansion_depthing)
+        i.gengy_weighted_nodes = int(g.expansion_depthing)
+        i.gengy_types_this_way = {type(i): [i]}
+        return (
+            int(g.expansion_depthing),
+            int(g.expansion_depthing),
+            {type(i): [i]},
+            int(g.expansion_depthing),
+        )
+    elif hasattr(i, "gengy_init_values"):
+        children = [(typ[1], i.gengy_init_values[idx]) for idx, typ in enumerate(get_arguments(i))]
     else:
-        if isinstance(i, list):
-            children = [(type(obj), obj) for obj in i]
-        else:
-            if not hasattr(i, "gengy_init_values"):
-                breakpoint()
-            children = [(typ[1], i.gengy_init_values[idx]) for idx, typ in enumerate(get_arguments(i))]
-        for t, c in children:
-            nodes, dist, thisway, weighted_nodes = relabel_nodes(
-                c,
-                g,
-                isinstance(c, list),
-            )
-            abs_adjust = 0 if not is_abstract(t) or not g.expansion_depthing else g.abstract_dist_to_t[t][type(c)]
-            if isinstance(c, list) and g.expansion_depthing:
-                abs_adjust = 1
-            list_adjust = 0 if isinstance(c, list) else 1
-            number_of_nodes += abs_adjust + nodes
-            weighted_number_of_nodes += weighted_nodes
-            distance_to_term = max(distance_to_term, dist + abs_adjust + list_adjust)
-            for k, v in thisway.items():
-                types_this_way[k].extend(v)
+        assert False, f"Unsupported: {i} ({type(i)})"
+
+    for t, c in children:
+        nodes, dist, thisway, weighted_nodes = relabel_nodes(
+            c,
+            g,
+            isinstance(c, list),
+        )
+        abs_adjust = 0 if not is_abstract(t) or not g.expansion_depthing else g.abstract_dist_to_t[t][type(c)]
+        if isinstance(c, list) and g.expansion_depthing:
+            abs_adjust = 1
+        list_adjust = 0 if isinstance(c, list) else 1
+        number_of_nodes += abs_adjust + nodes
+        weighted_number_of_nodes += weighted_nodes
+        distance_to_term = max(distance_to_term, dist + abs_adjust + list_adjust)
+        for k, v in thisway.items():
+            types_this_way[k].extend(v)
 
     if not is_list:
         weighted_number_of_nodes += distance_to_term
@@ -90,30 +100,15 @@ def relabel_nodes_of_trees(i: TreeNode, g: Grammar) -> TreeNode:
     return i
 
 
-def get_nodes_depth_specific(i: TreeNode, g: Grammar):
-    depth = i.gengy_distance_to_term
-    if not i.gengy_labeled:
-        relabel_nodes_of_trees(i, g)
+T = TypeVar("T")
 
-    nodes_depth_specific: dict[str, float] = dict()
 
-    def add_count(node: TreeNode, n_d_spec_dict: dict[str, float]):
-        if hasattr(node, "gengy_distance_to_term"):
-            try:
-                n_d_spec_dict[str(depth - node.gengy_distance_to_term)] += 1
-            except Exception:
-                n_d_spec_dict[str(depth - node.gengy_distance_to_term)] = 1
-
-        if not (is_terminal(type(node), g.non_terminals) and (not isinstance(node, list))):
-            if isinstance(node, list):
-                children = [(type(obj), obj) for obj in node]
-            else:
-                if not hasattr(node, "gengy_init_values"):
-                    breakpoint()
-                children = [(typ[1], node.gengy_init_values[idx]) for idx, typ in enumerate(get_arguments(node))]
-            for t, c in children:
-                n_d_spec_dict = add_count(c, n_d_spec_dict)
-        return n_d_spec_dict
-
-    add_count(i, nodes_depth_specific)
-    return nodes_depth_specific
+def tree_node_fold(i: TreeNode, f: Callable[[Any, list[T]], T]):
+    """Recursively folds over all elements of the tree."""
+    ty = type(i)
+    if isinstance(i, list):
+        return f(i, [tree_node_fold(n, f) for n in i])
+    elif dataclasses.is_dataclass(i):
+        return f(i, [tree_node_fold(getattr(i, aname), f) for (aname, _) in get_arguments(ty)])
+    else:
+        return f(i, [])

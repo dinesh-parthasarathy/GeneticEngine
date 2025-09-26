@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Annotated
+
 from geneticengine.problems import SingleObjectiveProblem
 
 
 from geneticengine.grammar.decorators import abstract
 from geneticengine.grammar.grammar import extract_grammar
 from geneticengine.random.sources import NativeRandomSource
+from geneticengine.representations.tree.initializations import (
+    FullDecider,
+    PositionIndependentGrowDecider,
+    ProgressivelyTerminalDecider,
+)
 from geneticengine.representations.tree.operators import FullInitializer, GrowInitializer
 from geneticengine.representations.tree.treebased import TreeBasedRepresentation
 from geneticengine.grammar.metahandlers.floats import FloatRange
@@ -53,10 +59,10 @@ class TestInitializers:
         target_depth = 10
 
         g = extract_grammar([B, C], A)
-        f = FullInitializer()
+        f = FullInitializer(max_depth=target_depth)
         p = SingleObjectiveProblem(lambda x: 3)
-        repr = TreeBasedRepresentation(grammar=g, max_depth=target_depth)
         rs = NativeRandomSource(5)
+        repr = TreeBasedRepresentation(grammar=g, decider=FullDecider(rs, g, target_depth))
 
         population = list(f.initialize(p, repr, rs, target_size))
         assert len(population) == target_size
@@ -70,10 +76,24 @@ class TestInitializers:
         g = extract_grammar([B, C], A)
         f = GrowInitializer()
         p = SingleObjectiveProblem(lambda x: 3)
-        repr = TreeBasedRepresentation(grammar=g, max_depth=target_depth)
         rs = NativeRandomSource(5)
+        repr = TreeBasedRepresentation(grammar=g, decider=PositionIndependentGrowDecider(rs, g, target_depth))
 
         population = list(f.initialize(p, repr, rs, target_size))
         assert len(population) == target_size
         for ind in population:
             assert ind.get_phenotype().gengy_distance_to_term <= target_depth
+
+    def test_progressive(self):
+        target_size = 10
+
+        g = extract_grammar([B, C], A)
+        f = GrowInitializer()
+        p = SingleObjectiveProblem(lambda x: 3)
+        rs = NativeRandomSource(5)
+        repr = TreeBasedRepresentation(grammar=g, decider=ProgressivelyTerminalDecider(rs, g))
+
+        population = list(f.initialize(p, repr, rs, target_size))
+        assert len(population) == target_size
+        for ind in population:
+            assert ind.get_phenotype()

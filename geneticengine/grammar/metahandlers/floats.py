@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TypeVar
+from typing import Any, Callable, Generator, TypeVar
 
 from geneticengine.grammar.grammar import Grammar
 from geneticengine.random.sources import RandomSource
@@ -8,6 +8,9 @@ from geneticengine.grammar.metahandlers.base import MetaHandlerGenerator
 
 min = TypeVar("min", covariant=True)
 max = TypeVar("max", covariant=True)
+
+
+T = TypeVar("T")
 
 
 class FloatRange(MetaHandlerGenerator):
@@ -26,48 +29,32 @@ class FloatRange(MetaHandlerGenerator):
 
     def generate(
         self,
-        r: RandomSource,
-        g: Grammar,
-        rec,
-        new_symbol,
-        depth: int,
-        base_type,
-        context: dict[str, str],
+        random: RandomSource,
+        grammar: Grammar,
+        base_type: type,
+        rec: Callable[[type[T]], T],
+        dependent_values: dict[str, Any],
+        parent_values: list[dict[str, Any]],
     ):
-        rec(r.random_float(self.min, self.max, str(base_type)))
+        return random.random_float(self.min, self.max)
 
-    def __class_getitem__(self, args):
+    def validate(self, v) -> bool:
+        return self.min <= v <= self.max
+
+    def __class_getitem__(cls, args):
         return FloatRange(*args)
 
     def __repr__(self):
         return f"[{self.min},{self.max}]"
 
-
-class FloatList(MetaHandlerGenerator):
-    """FloatList([a_1, .., a_n]) restricts floats to be an element from the
-    list [a_1, .., a_n].
-
-    The range can be dynamically altered before the grammar extraction
-        Float.__init__.__annotations__["value"] = Annotated[float, FloatList[a_1, .., a_n]]
-    """
-
-    def __init__(self, elements):
-        self.elements = elements
-
-    def generate(
+    def iterate(
         self,
-        r: RandomSource,
-        g: Grammar,
-        rec,
-        new_symbol,
-        depth: int,
-        base_type,
-        context: dict[str, str],
+        base_type: type,
+        combine_lists: Callable[[list[type]], Generator[Any, Any, Any]],
+        rec: Any,
+        dependent_values: dict[str, Any],
     ):
-        rec(r.choice(self.elements, str(base_type)))
-
-    def __class_getitem__(self, args):
-        return FloatList(*args)
-
-    def __repr__(self):
-        return f"[{self.elements}]"
+        v = self.min
+        while v <= self.max:
+            yield v
+            v += 0.0001

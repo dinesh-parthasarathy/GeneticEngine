@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import is_dataclass
 import inspect
 import warnings
 from abc import ABC
 from abc import ABCMeta
 from collections import defaultdict
-from typing import Any
+from typing import Any, Type, get_args
 from typing import Generic
 from typing import NamedTuple
 
 from geneticengine.grammar.decorators import get_gengy
-from geneticengine.grammar.utils import all_init_arguments_typed
+from geneticengine.grammar.utils import is_metahandler
+from geneticengine.grammar.utils import all_init_arguments_typed, is_union
 from geneticengine.grammar.utils import get_arguments
 from geneticengine.grammar.utils import get_generic_parameter
 from geneticengine.grammar.utils import get_generic_parameters
@@ -21,6 +23,8 @@ from geneticengine.grammar.utils import is_generic_list
 from geneticengine.grammar.utils import is_terminal
 from geneticengine.grammar.utils import strip_annotations
 from geneticengine.grammar.utils import strip_dependencies
+
+INF_VALUE = 1000000
 
 
 class InvalidGrammarException(Exception):
@@ -50,6 +54,35 @@ class GrammarSummary(NamedTuple):
     production_stats: ProductionSummary
 
 
+def is_mentioned_by(target: Type, ty: Type) -> bool:
+    if ty in [bool, int, float, str]:
+        return False
+    elif is_abstract(ty):
+        return False
+    elif is_dataclass(ty):
+        return any(is_mentioned_by(target, k) for _, k in get_arguments(ty))
+    elif is_metahandler(ty):
+        x = get_generic_parameter(ty)
+        return is_mentioned_by(target, x)
+    elif is_generic_list(ty):
+        x = get_generic_parameter(ty)
+        return is_mentioned_by(target, x)
+    elif is_generic(ty):
+        return any(is_mentioned_by(target, x) for x in get_generic_parameters(ty))
+    else:
+        assert False, f"Unimplemented mentions for {ty}"
+
+
+def all_with_recursion(s: list[bool | None]) -> bool:
+    """Returns whether there is a True in all elements. Recursion (None) is allows if there is at least another path."""
+    if s == []:
+        return True
+    if all(el is None for el in s):
+        return False
+    else:
+        return all(i for i in s if i is not None)
+
+
 class Grammar:
     starting_symbol: type
     alternatives: dict[type, list[type]]
@@ -76,7 +109,7 @@ class Grammar:
         self.terminals = set()
         self.non_terminals = set()
         self.abstract_dist_to_t = defaultdict(
-            lambda: defaultdict(lambda: 1000000),
+            lambda: defaultdict(lambda: INF_VALUE),
         )
         self.considered_subtypes = considered_subtypes or []
         self.expansion_depthing = expansion_depthing
@@ -144,14 +177,7 @@ class Grammar:
                 terminal = False
                 if isinstance(argt, type) or isinstance(argt, ABCMeta):
                     self.register_type(argt)
-                if is_annotated(argt):
-                    gen = get_generic_parameter(argt)
-                else:
-                    gen = argt
-                if is_generic_list(gen):
-                    self.register_type(get_generic_parameter(gen))
-                else:
-                    self.register_type(gen)
+                self.register_type(argt)
 
         for st in self.considered_subtypes:
             if issubclass(st, ty):
@@ -163,7 +189,10 @@ class Grammar:
             self.non_terminals.add(ty)
 
     def __repr__(self):
-        def wrap(n):
+        def wrap(n: Type) -> str:
+            if is_annotated(n):
+                args = ",".join(wrap(a) for a in get_generic_parameters(n))
+                return f"Annotated[{args}]"
             if hasattr(n, "__name__"):
                 return n.__name__
             if hasattr(n, "__metadata__"):
@@ -171,12 +200,12 @@ class Grammar:
                     return f"{n.__metadata__[0]} of {wrap(strip_annotations(n))}"
                 else:
                     return f"{n.__metadata__[0]}"
-            return n
+            return str(n)
 
         def format(x):
             def add_weight(prod):
                 if "weight" in get_gengy(prod):
-                    return f'<{get_gengy(prod)["weight"]}>'
+                    return f'<{get_gengy(prod)["weight"]:.2f}>'
                 return ""
 
             args = ", ".join(
@@ -184,25 +213,52 @@ class Grammar:
             )
             return f"{x.__name__}({args}){add_weight(x)}"
 
-        prods = ";".join(
+        prods = "\n\n".join(
             [
-                str(p.__name__) + " -> " + ("|".join([format(p) for p in self.alternatives[p]]))
+                str(p.__name__) + " -> " + ("|\n\t".join([format(p) for p in self.alternatives[p]]))
                 for p in self.alternatives
             ],
         )
-        return f"Grammar<Starting={self.starting_symbol.__name__},Productions=[{prods}]>"
+        return f"Grammar<Starting={self.starting_symbol.__name__},Productions={{\n{prods}\n}}"
 
     def get_all_symbols(self) -> tuple[set[type], set[type], set[type]]:
         """All symbols in the current grammar, including terminals."""
         keys = {k for k in self.alternatives.keys()}
         sequence = {v for vv in self.alternatives.values() for v in vv}
-        # extra = []
-        # for k in sequence:
-        #     for _, argt in get_arguments(k):
-        #         if is_generic(argt):
-        #             extra.extend(get_generic_parameters(argt))
+        return (keys, sequence, sequence.union(keys).union(self.all_nodes))
 
-        return (keys, sequence, sequence.union(keys).union(self.all_nodes))  # .union(extra)
+    def collect_types(self, ty: type):
+        visited = set()
+        to_visit = {ty}
+        while to_visit:
+            ty = to_visit.pop()
+            if ty in visited:
+                continue
+            visited.add(ty)
+
+            if is_generic_list(ty):
+                gty = get_generic_parameter(ty)
+                to_visit |= {gty}
+            elif is_annotated(ty):
+                gty = get_generic_parameter(ty)
+                to_visit |= {gty}
+            elif is_generic(ty):
+                for p in get_generic_parameters(ty):
+                    to_visit |= {p}
+            elif is_metahandler(ty):
+                nt = get_args(ty)[0]
+                to_visit |= {nt}
+            elif is_abstract(ty):
+                pass
+            else:
+                for _, argt in get_arguments(ty):
+                    if argt != ty:
+                        to_visit |= {argt}
+                    # TODO: This does not support mutually recursive types.
+        yield from visited
+
+    def get_all_mentioned_symbols(self) -> set[type]:
+        return {x for t in self.get_all_symbols()[2] for x in self.collect_types(t)}
 
     def get_distance_to_terminal(self, ty: type) -> int:
         """Returns the current distance to terminal of a given type."""
@@ -235,17 +291,24 @@ class Grammar:
         """Computes distanceToTerminal via a fixpoint algorithm."""
         (keys, _, all_sym) = self.get_all_symbols()
         for s in all_sym:
-            self.distanceToTerminal[s] = 1000000
+            self.distanceToTerminal[s] = INF_VALUE
         changed = True
 
         reachability: dict[type, set[type]] = defaultdict(lambda: set())
 
+        def explode_generics(tys: list[type]):
+            for ty in tys:
+                if is_union(ty):
+                    yield from explode_generics(get_generic_parameters(ty))
+                elif is_generic_list(ty) or is_annotated(ty):
+                    yield from explode_generics([get_generic_parameter(ty)])
+                else:
+                    yield ty
+
         def process_reachability(src: type, dsts: list[type]):
-            src = strip_annotations(src)
             ch = False
             src_reach = reachability[src]
-            for prod in dsts:
-                prod = strip_annotations(prod)
+            for prod in explode_generics(dsts):
                 reach = reachability[prod]
                 oldlen = len(reach)
                 reach.add(src)
@@ -281,7 +344,7 @@ class Grammar:
                         changed |= process_reachability(sym, prods)
                 else:
                     if is_terminal(sym, self.non_terminals):
-                        if (sym == int or sym == float or sym == str) and not self.expansion_depthing:
+                        if (sym is int or sym is float or sym is str) and not self.expansion_depthing:
                             val = 0
                         else:
                             val = 1
@@ -289,7 +352,6 @@ class Grammar:
                         args = get_arguments(sym)
                         assert args
                         val = max(1 + self.get_distance_to_terminal(argt) for (_, argt) in args)
-
                         changed |= process_reachability(
                             sym,
                             [argt for (_, argt) in args],
@@ -324,34 +386,93 @@ class Grammar:
             assert weights[weight] >= 0 and weights[weight] <= 1
 
         starting_symbol = self.starting_symbol
-        starting_symbol.__dict__["__gengy__"]["weight"] = weights[starting_symbol]
+        starting_symbol.__dict__["__gengy__"]["weight"] = weights.get(starting_symbol, 1)
         nodes = list()
         for node in self.considered_subtypes:
-            node.__dict__["__gengy__"]["weight"] = weights[node]
+            node.__dict__["__gengy__"]["weight"] = weights.get(node, 1)
             nodes.append(node)
         self.__init__(starting_symbol, nodes, self.expansion_depthing)
         self.register_type(starting_symbol)
         self.preprocess()
         return self
 
-    def get_branching_average_proxy(self, r, get_nodes_depth_specific, n_individuals: int = 100, max_depth: int = 17):
-        """Get a proxy for the average branching factor of a grammar.
+    def is_reachable(self, t1: Type, t2: Type) -> bool:
+        visited = set()
+        to_visit = {t1}
 
-        This proxy is a dictionary with the number of non-terminals in
-        each depth of the grammar, obtained by generating
-        <n_individuals> random individuals with depth <max_depth> and
-        analyzing those.
+        while to_visit:
+            t = to_visit.pop()
+            if t in visited:
+                continue
+            visited.add(t)
+            if t == t2:
+                return True
+            elif t in [bool, int, float, str]:
+                continue
+            elif is_abstract(t):
+                if t in self.alternatives:
+                    to_visit |= {p for p in self.alternatives[t]}
+                continue
+            elif is_dataclass(t):
+                to_visit |= {a for _, a in get_arguments(t)}
+                continue
+            elif is_generic_list(t):
+                to_visit |= {get_generic_parameter(t)}
+                continue
+            elif is_annotated(t):
+                to_visit |= {get_generic_parameter(t)}
+                continue
+            elif is_generic(t):
+                to_visit |= {p for p in get_generic_parameters(t)}
+                continue
+            else:
+                assert False, f"Does not support {t}"
+        return False
+
+    def reaches_leaf(self, t: Type, visited: set | None = None) -> bool | None:
+        """Returns whether a given type reaches a leaf type, or None if it causes a loop.
+
+        Loops should be ignored only if there is an alternative path.
         """
-        max_depth = max(max_depth, self.get_min_tree_depth())
-        branching_factors = dict()
-        for i in range(max_depth + 1):
-            branching_factors[str(i)] = 0
-        for idx in range(n_individuals):
-            n_d_specs = get_nodes_depth_specific(r, self, max_depth)
-            for key in n_d_specs.keys():
-                branching_factors[key] = (branching_factors[key] * idx + n_d_specs[key]) / (idx + 1)
+        if t in [bool, int, float, str]:
+            return True
 
-        return branching_factors
+        if visited is None:
+            visited = set()
+
+        if t in visited:
+            return None
+        else:
+            visited.add(t)
+
+
+        if is_abstract(t):
+            if t in self.alternatives:
+                return any([self.reaches_leaf(p, visited) for p in self.alternatives[t]])
+            else:
+                return False
+        elif is_dataclass(t):
+            return all_with_recursion([self.reaches_leaf(a, visited) for _, a in get_arguments(t)])
+        elif is_generic_list(t):
+            return self.reaches_leaf(get_generic_parameter(t), visited)
+        elif is_annotated(t):
+            return self.reaches_leaf(get_generic_parameter(t), visited)
+        elif is_generic(t):
+            return all_with_recursion([self.reaches_leaf(p, visited) for p in get_generic_parameters(t)])
+        else:
+            assert False, f"Does not support {t}"
+
+    def usable_grammar(self) -> Grammar:
+        """Returns a subset of the grammar that is actually reachable."""
+        all_symbols = {
+            t
+            for t in self.get_all_mentioned_symbols()
+            if (is_abstract(t) or is_dataclass(t))
+            and self.is_reachable(self.starting_symbol, t)
+            and self.reaches_leaf(t)
+        }
+
+        return extract_grammar(list(all_symbols), self.starting_symbol)
 
     def get_grammar_properties_summary(self) -> GrammarSummary:
         """Returns a summary of grammar properties:

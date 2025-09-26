@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import TypeVar
+from typing import Any, Callable, Generator, TypeVar
 
 from geneticengine.grammar.grammar import Grammar
 from geneticengine.random.sources import RandomSource
-from geneticengine.grammar.metahandlers.base import MetaHandlerGenerator
+from geneticengine.grammar.metahandlers.base import MetaHandlerGenerator, SynthesisException
 
 T = TypeVar("T")
 
@@ -12,32 +12,44 @@ T = TypeVar("T")
 class VarRange(MetaHandlerGenerator):
     """VarRange([a, b, c]) represents the alternative between a, b, and c.
 
-    The list of options can be dynamically altered before the grammar extraction
-    with something like Var.__init__.__annotations__["name"] = Annotated[str, VarRange([d, e, f])].
-    The option list must not be empty.
+    The list of options can be dynamically altered before the grammar
+    extraction with something like Var.__init__.__annotations__["name"]
+    = Annotated[str, VarRange([d, e, f])]. The option list must not be
+    empty.
     """
 
     def __init__(self, options: list[T]):
         if not options:
-            raise Exception(
+            raise SynthesisException(
                 f"The VarRange metahandler requires a non-empty set of options. Options found: {options}",
             )
         self.options = options
 
+    def validate(self, v) -> bool:
+        return v in self.options
+
     def generate(
         self,
-        r: RandomSource,
-        g: Grammar,
-        rec,
-        new_symbol,
-        depth: int,
-        base_type,
-        context: dict[str, str],
+        random: RandomSource,
+        grammar: Grammar,
+        base_type: type,
+        rec: Callable[[type[T]], T],
+        dependent_values: dict[str, Any],
+        parent_values: list[dict[str, Any]],
     ):
-        rec(r.choice(self.options, str(base_type)))
+        return random.choice(self.options)
 
     def __repr__(self):
         return str(self.options)
 
-    def __class_getitem__(self, args):
+    def __class_getitem__(cls, args):
         return VarRange(*args)
+
+    def iterate(
+        self,
+        base_type: type,
+        combine_lists: Callable[[list[type]], Generator[Any, Any, Any]],
+        rec: Any,
+        dependent_values: dict[str, Any],
+    ):
+        yield from self.options

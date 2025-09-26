@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, overload
+from typing import Any, Optional, overload
 from typing import Callable
 from typing import TypeVar
 
@@ -15,11 +15,11 @@ from geneticengine.algorithms.gp.operators.novelty import NoveltyStep
 from geneticengine.algorithms.gp.operators.selection import LexicaseSelection
 from geneticengine.algorithms.gp.operators.selection import TournamentSelection
 from geneticengine.algorithms.gp.structure import GeneticStep
-from geneticengine.evaluation.budget import AnyOf, EvaluationBudget, TargetFitness, TimeBudget
+from geneticengine.evaluation.budget import EvaluationBudget, TimeBudget
 from geneticengine.evaluation.parallel import ParallelEvaluator
 from geneticengine.evaluation.slurm import SLURMEvaluator
 from geneticengine.evaluation.recorder import CSVSearchRecorder, SearchRecorder
-from geneticengine.evaluation.tracker import MultiObjectiveProgressTracker, SingleObjectiveProgressTracker
+from geneticengine.evaluation.tracker import ProgressTracker
 from geneticengine.grammar.grammar import Grammar
 from geneticengine.evaluation.sequential import SequentialEvaluator
 from geneticengine.problems import MultiObjectiveProblem
@@ -34,11 +34,13 @@ from geneticengine.representations.grammatical_evolution.structured_ge import (
     StructuredGrammaticalEvolutionRepresentation,
 )
 from geneticengine.representations.stackgggp import StackBasedGGGPRepresentation
+from geneticengine.representations.tree.initializations import MaxDepthDecider
 from geneticengine.representations.tree.operators import (
     GrowInitializer,
     InjectInitialPopulationWrapper,
 )
 from geneticengine.representations.tree.treebased import TreeBasedRepresentation
+from geneticengine.solutions.individual import Individual
 
 P = TypeVar("P")
 
@@ -68,9 +70,9 @@ class SimpleGP:
         representation: str = "treebased",
         max_depth: int = 15,
         # Budget
-        target_fitness: float | None = None,
-        max_time: float = 60,
-        max_evaluations: int = 200,
+        target_fitness: list[float] | float | None = None,
+        max_time: Optional[float] = None,
+        max_evaluations: Optional[int] = None,
         # Tracker
         csv_output: str | None = None,
         csv_extra_fields: dict[str, Callable[[Any], str]] | None = None,
@@ -91,10 +93,12 @@ class SimpleGP:
         crossover_probability: float = 0.9,
         selection_method: tuple[str, int | bool] = ("tournament", 5),
     ):
-        self.problem = self.process_problem(fitness_function, minimize)
-        budget = self.build_budget(target_fitness, max_time, max_evaluations)
+        self.random = NativeRandomSource(seed)
+        self.problem = self.process_problem(fitness_function, minimize, target_fitness)
+        budget = self.build_budget(max_time, max_evaluations)
         representation_internal = self.process_representation(representation, grammar, max_depth)
         population_initializer = self.process_population_initializer(initial_population)
+
         step = self.build_step(
             population_size,
             elitism,
@@ -116,7 +120,7 @@ class SimpleGP:
         self.gp = GeneticProgramming(
             self.problem,
             budget=budget,
-            random=NativeRandomSource(seed),
+            random=self.random,
             representation=representation_internal,
             population_size=population_size,
             population_initializer=population_initializer,
@@ -124,34 +128,30 @@ class SimpleGP:
             tracker=recorder,
         )
 
-    def search(self):
+    def search(self) -> list[Individual] | None:
         return self.gp.search()
 
     @overload
     def process_problem(
         self,
         fitness_function: Callable[[P], float],
-        minimize: bool,
-    ) -> Problem:
-        ...
+        minimize: bool | list[bool],
+        target_fitness: list[float] | float | None,
+    ) -> Problem: ...
 
     @overload
     def process_problem(
         self,
         fitness_function: Callable[[P], list[float]],
         minimize: list[bool],
-    ) -> Problem:
-        ...
+        target_fitness: Optional[list[float]],
+    ) -> Problem: ...
 
-    def process_problem(
-        self,
-        fitness_function,
-        minimize=False,
-    ) -> Problem:
+    def process_problem(self, fitness_function, minimize=False, target_fitness=None) -> Problem:
         if isinstance(minimize, list):
-            return MultiObjectiveProblem(minimize, fitness_function)
+            return MultiObjectiveProblem(fitness_function, minimize, target_fitness)
         else:
-            return SingleObjectiveProblem(fitness_function, minimize)
+            return SingleObjectiveProblem(fitness_function, minimize, target_fitness)
 
     def process_representation(self, representation: str, grammar: Grammar, max_depth: int):
         representation_class = {
@@ -161,14 +161,18 @@ class SimpleGP:
             "dsge": DynamicStructuredGrammaticalEvolutionRepresentation,
             "stack": StackBasedGGGPRepresentation,
         }[representation]
-        return representation_class(grammar=grammar, max_depth=max_depth)
 
-    def build_budget(self, target_fitness, max_time, max_evaluations):
-        base = AnyOf(TimeBudget(max_time), EvaluationBudget(max_evaluations))
-        if target_fitness is None:
-            return base
+        decider = MaxDepthDecider(self.random, grammar, max_depth)
+
+        return representation_class(grammar=grammar, decider=decider)
+
+    def build_budget(self, max_time, max_evaluations):
+        if max_time is None and max_evaluations is None:
+            assert False, "You have to define wither the max_time or max_evaluations"
+        elif max_time is not None:
+            return TimeBudget(max_time)
         else:
-            return AnyOf(TargetFitness(target_fitness), base)
+            return EvaluationBudget(max_evaluations)
 
     def process_population_initializer(self, initial_population: list[Any] | None = None):
         if initial_population:
@@ -240,9 +244,9 @@ class SimpleGP:
             recorders.append(recorder)
         ev = SequentialEvaluator() if not parallel_evaluation else SLURMEvaluator(eval_dir, slurm_script,program_generator,output_parser)
         if problem.number_of_objectives() == 1:
-            return SingleObjectiveProgressTracker(problem=problem, evaluator=ev, recorders=recorders)
+            return ProgressTracker(problem=problem, evaluator=ev, recorders=recorders)
         else:
-            return MultiObjectiveProgressTracker(problem=problem, evaluator=ev, recorders=recorders)
+            return ProgressTracker(problem=problem, evaluator=ev, recorders=recorders)
 
     def get_problem(self):
         return self.problem

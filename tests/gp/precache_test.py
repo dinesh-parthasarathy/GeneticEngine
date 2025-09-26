@@ -8,7 +8,8 @@ import pytest
 
 from geneticengine.algorithms.gp.gp import default_generic_programming_step
 from geneticengine.representations.api import Representation
-from geneticengine.solutions.individual import Individual
+from geneticengine.representations.tree.initializations import MaxDepthDecider
+from geneticengine.solutions.individual import PhenotypicIndividual
 from geneticengine.algorithms.gp.operators.combinators import SequenceStep
 from geneticengine.algorithms.gp.operators.crossover import GenericCrossoverStep
 from geneticengine.algorithms.gp.operators.mutation import GenericMutationStep
@@ -45,12 +46,12 @@ class CacheFitness(GeneticStep):
         evaluator: Evaluator,
         representation: Representation,
         random: RandomSource,
-        population: Iterator[Individual],
+        population: Iterator[PhenotypicIndividual],
         target_size: int,
         generation: int,
-    ) -> Iterator[Individual]:
+    ) -> Iterator[PhenotypicIndividual]:
         for ind in population:
-            ind.set_fitness(problem, Fitness(-1.0, []))
+            ind.set_fitness(problem, Fitness([]))
         return population
 
 
@@ -66,7 +67,7 @@ class TestPreCache:
     )
     def test_immutability(self, test_step):
         g = extract_grammar([Sub], Base)
-        rep = TreeBasedRepresentation(g, max_depth=10)
+        rep = TreeBasedRepresentation(g, decider=MaxDepthDecider(NativeRandomSource(), g, max_depth=10))
         r = NativeRandomSource(3)
 
         def fitness_function(x):
@@ -75,11 +76,11 @@ class TestPreCache:
         problem = SingleObjectiveProblem(fitness_function=fitness_function)
         population_size = 1000
 
-        initial_population = [
-            Individual(genotype=rep.create_genotype(r), representation=rep) for _ in range(population_size)
+        initial_population : list[PhenotypicIndividual] = [
+            PhenotypicIndividual(genotype=rep.create_genotype(r), representation=rep) for _ in range(population_size)
         ]
 
-        def encode_population(pop: list[Individual]) -> list[str]:
+        def encode_population(pop: list[PhenotypicIndividual]) -> list[str]:
             return [str(ind.genotype) for ind in pop]
 
         cpy = encode_population(initial_population)
@@ -87,12 +88,12 @@ class TestPreCache:
         step = SequenceStep(CacheFitness(), default_generic_programming_step())
 
         for i in range(10):
-            _ = step.iterate(
+            _ = step.apply(
                 problem=problem,
                 evaluator=SequentialEvaluator(),
                 representation=rep,
                 random=r,
-                population=initial_population,
+                population=iter(initial_population),
                 target_size=population_size,
                 generation=i,
             )

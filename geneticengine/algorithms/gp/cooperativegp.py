@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Optional, TypeVar
+from typing import Callable, Generic, Optional, TypeVar
 
 from geneticengine.algorithms.gp.gp import GeneticProgramming
 from geneticengine.algorithms.gp.operators.initializers import StandardInitializer
@@ -9,6 +9,7 @@ from geneticengine.grammar.grammar import Grammar
 from geneticengine.problems import SingleObjectiveProblem
 from geneticengine.random.sources import NativeRandomSource, RandomSource
 from geneticengine.representations.api import Representation
+from geneticengine.representations.tree.initializations import MaxDepthDecider
 from geneticengine.representations.tree.operators import InjectInitialPopulationWrapper
 from geneticengine.representations.tree.treebased import TreeBasedRepresentation
 
@@ -16,7 +17,7 @@ a = TypeVar("a")
 b = TypeVar("b")
 
 
-class CooperativeGP:
+class CooperativeGP(Generic[a, b]):
     """CooperativeGP takes two representations and a function that pits two
     individuals against each other.
 
@@ -63,8 +64,14 @@ class CooperativeGP:
         self.population1_size = population1_size
         self.population2_size = population2_size
         self.coevolutions = coevolutions
-        self.representation1 = representation1 or TreeBasedRepresentation(grammar=self.g1, max_depth=10)
-        self.representation2 = representation2 or TreeBasedRepresentation(grammar=self.g2, max_depth=10)
+        self.representation1 = representation1 or TreeBasedRepresentation(
+            grammar=self.g1,
+            decider=MaxDepthDecider(random, self.g1),
+        )
+        self.representation2 = representation2 or TreeBasedRepresentation(
+            grammar=self.g2,
+            decider=MaxDepthDecider(random, self.g2),
+        )
         self.kwargs1 = kwargs1 or {}
         self.kwargs2 = kwargs2 or {}
         self.random = random or NativeRandomSource()
@@ -110,8 +117,8 @@ class CooperativeGP:
                 ),  # TODO: we might want to keep individuals, and not only the phenotypes.
                 **self.kwargs1,
             )
-            ind = gp1.search()
-            self.bests.b1 = ind.get_phenotype()
+            inds = gp1.search()
+            self.bests.b1 = inds[0].get_phenotype()
 
             gp2 = GeneticProgramming(
                 problem=p2,
@@ -121,7 +128,7 @@ class CooperativeGP:
                 population_initializer=InjectInitialPopulationWrapper([e.get_phenotype() for e in pop2], init),
                 **self.kwargs2,
             )
-            ind = gp2.search()
-            self.bests.b2 = ind.get_phenotype()
+            inds = gp2.search()
+            self.bests.b2 = inds[0].get_phenotype()
 
         return (self.bests.b1, self.bests.b2)

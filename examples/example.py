@@ -9,6 +9,8 @@ from geneticengine.algorithms.random_search import RandomSearch
 from geneticengine.evaluation.budget import TimeBudget
 from geneticengine.grammar.grammar import extract_grammar
 from geneticengine.problems import SingleObjectiveProblem
+from geneticengine.random.sources import NativeRandomSource
+from geneticengine.representations.tree.initializations import MaxDepthDecider
 from geneticengine.representations.tree.treebased import TreeBasedRepresentation
 from geml.grammars.basic_math import SafeDiv
 from geml.grammars.sgp import Literal
@@ -44,7 +46,8 @@ def target(x):
     return x**2
 
 
-representation = TreeBasedRepresentation(g, max_depth=5)
+r = NativeRandomSource()
+representation = TreeBasedRepresentation(g, decider=MaxDepthDecider(r, g, 5))
 problem = SingleObjectiveProblem(
     minimize=True,
     fitness_function=fit,
@@ -53,17 +56,17 @@ budget = TimeBudget(3)
 
 
 alg_gp = GeneticProgramming(problem=problem, budget=budget, representation=representation)
-ind = alg_gp.search()
+ind = alg_gp.search()[0]
 print("\n======\nGP\n======\n")
 print(f"{ind.get_fitness(problem)} - {ind}")
 
 
 alg_hc = HC(problem=problem, budget=budget, representation=representation)
-ind = alg_hc.search()
+ind = alg_hc.search()[0]
 print("\n======\nHC\n======\n")
 print(f"{ind.get_fitness(problem)} - {ind}")
 
 alg_rs = RandomSearch(problem=problem, budget=budget, representation=representation)
-ind = alg_rs.search()
+ind = alg_rs.search()[0]
 print("\n======\nRS\n======\n")
 print(f"{ind.get_fitness(problem)} - {ind}")

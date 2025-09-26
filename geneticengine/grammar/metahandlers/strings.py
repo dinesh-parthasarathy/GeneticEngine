@@ -1,11 +1,14 @@
 from __future__ import annotations
 import copy
+import itertools
 import string
+from typing import Any, Callable, Generator, TypeVar
 
 from geneticengine.grammar.grammar import Grammar
 from geneticengine.random.sources import RandomSource
-from geneticengine.representations.tree.initializations import pi_grow_method
 from geneticengine.grammar.metahandlers.base import MetaHandlerGenerator
+
+T = TypeVar("T")
 
 
 class StringSizeBetween(MetaHandlerGenerator):
@@ -23,19 +26,21 @@ class StringSizeBetween(MetaHandlerGenerator):
         self.max = max
         self.options = list(options)
 
+    def validate(self, v) -> bool:
+        return self.min <= len(v) <= self.max and all(x in self.options for x in v)
+
     def generate(
         self,
-        r: RandomSource,
-        g: Grammar,
-        rec,
-        new_symbol,
-        depth: int,
-        base_type,
-        ctx: dict[str, str],
-    ):
-        size = r.randint(self.min, self.max, "str")
-        s = "".join(r.choice(self.options) for _ in range(size))
-        rec(s)
+        random: RandomSource,
+        grammar: Grammar,
+        base_type: type,
+        rec: Callable[[type[T]], T],
+        dependent_values: dict[str, Any],
+        parent_values: list[dict[str, Any]],
+    ) -> Any:
+        size = random.randint(self.min, self.max)
+        s = "".join(random.choice(self.options) for _ in range(size))
+        return s
 
     def mutate(
         self,
@@ -45,9 +50,8 @@ class StringSizeBetween(MetaHandlerGenerator):
         depth: int,
         base_type,
         current_node,
-        method=pi_grow_method,
     ):
-        mutation_method = r.randint(0, 2, "str")
+        mutation_method = r.randint(0, 2)
         current_str = copy.copy(current_node)
         if (mutation_method == 0) and (len(current_node) > self.min):  # del
             element_to_be_deleted = r.randint(0, len(current_node) - 1)
@@ -79,16 +83,29 @@ class StringSizeBetween(MetaHandlerGenerator):
         #  4 from the first str    |          2 from the first str
         #  bound = [0,2]           |          bound = [1,4]
 
-        size = r.randint(self.min, self.max, "str")
+        size = r.randint(self.min, self.max)
         midpoint = r.randint(1, size - 1)
         other = r.choice([getattr(x, arg) for x in options])
         return current_node[:midpoint] + other[midpoint:]
 
-    def __class_getitem__(self, args):
+    def __class_getitem__(cls, args):
         return StringSizeBetween(*args)
 
     def __repr__(self):
         return f"StringSizeBetween[{self.min}...{self.max}]"
+
+    def iterate(
+        self,
+        base_type: type,
+        combine_lists: Callable[[list[type]], Generator[Any, Any, Any]],
+        rec: Any,
+        dependent_values: dict[str, Any],
+    ):
+        def generate_letter():
+            yield from self.options
+
+        for length in range(self.min, self.max + 1):
+            yield from itertools.product(*(generate_letter() for _ in range(length)))
 
 
 class WeightedStringHandler(MetaHandlerGenerator):
@@ -96,13 +113,13 @@ class WeightedStringHandler(MetaHandlerGenerator):
     output complies with a given alphabet and a matrix of probabilities for
     each position.
 
-    Each row on the matrix should reflect the probability of
-    each character in that position. Thus, the number of cols
-    in the input matrix should be the same as the number of
-    characters in the alphabet.
+    Each row on the matrix should reflect the probability of each
+    character in that position. Thus, the number of cols in the input
+    matrix should be the same as the number of characters in the
+    alphabet.
 
-    This refinement will return a string with a
-    size == nrows in the matrix
+    This refinement will return a string with a size == nrows in the
+    matrix
     """
 
     def __init__(self, matrix, alphabet):
@@ -113,23 +130,35 @@ class WeightedStringHandler(MetaHandlerGenerator):
             len(self.alphabet) == self.probability_matrix.shape[1]
         ), "Cols in probability matrix must have the same size as the alphabet provided"
 
+    def validate(self, v) -> bool:
+        return len(v) == self.probability_matrix.shape[0] and all(x in self.alphabet for x in v)
+
     def generate(
         self,
-        r: RandomSource,
-        g: Grammar,
-        rec,
-        newsymbol,
-        depth: int,
-        base_type,
-        context: dict[str, str],
-    ):
+        random: RandomSource,
+        grammar: Grammar,
+        base_type: type,
+        rec: Callable[[type[T]], T],
+        dependent_values: dict[str, Any],
+        parent_values: list[dict[str, Any]],
+    ) -> str:
         out = ""
         for row in self.probability_matrix:
-            out += r.choice_weighted(self.alphabet, row, str(base_type))
-        rec(out)
+            out += random.choice_weighted(self.alphabet, row)
+        return out
 
     def __repr__(self):
         return f"str[aphabet={self.alphabet}, size={self.probability_matrix.shape[0]}"
 
-    def __class_getitem__(self, args):
+    def __class_getitem__(cls, args):
         return WeightedStringHandler(*args)
+
+    def iterate(
+        self,
+        base_type: type,
+        combine_lists: Callable[[list[type]], Generator[Any, Any, Any]],
+    ):
+        def generate_letter():
+            yield from self.options
+
+        yield from itertools.product(*(generate_letter() for _ in range(self.probability_matrix.shape[0])))

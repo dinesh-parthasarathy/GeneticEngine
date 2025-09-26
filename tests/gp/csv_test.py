@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from geneticengine.algorithms.gp.gp import GeneticProgramming
 from geneticengine.evaluation.budget import EvaluationBudget
 from geneticengine.evaluation.recorder import CSVSearchRecorder
-from geneticengine.evaluation.tracker import SingleObjectiveProgressTracker
+from geneticengine.evaluation.tracker import ProgressTracker
 from geneticengine.grammar.grammar import extract_grammar
 from geneticengine.problems import SingleObjectiveProblem
 from geneticengine.random.sources import NativeRandomSource
+from geneticengine.representations.tree.initializations import MaxDepthDecider
 from geneticengine.representations.tree.treebased import TreeBasedRepresentation
 
 
@@ -40,14 +41,15 @@ class TestCSVCallback:
             lambda p: abs(p.v - 2024),
             minimize=True,
         )
-
+        r = NativeRandomSource(seed)
+        decider = MaxDepthDecider(r, g, max_depth=10)
         gp = GeneticProgramming(
-            representation=TreeBasedRepresentation(g, max_depth=10),
+            representation=TreeBasedRepresentation(g, decider=decider),
             problem=objective,
             population_size=population_size,
             budget=EvaluationBudget(population_size * max_generations),
-            random=NativeRandomSource(seed),
-            tracker=SingleObjectiveProgressTracker(
+            random=r,
+            tracker=ProgressTracker(
                 objective,
                 recorders=[CSVSearchRecorder(csv_path=path, problem=objective)],
             ),
@@ -72,14 +74,15 @@ class TestCSVCallback:
             lambda p: abs(p.v - 2024),
             minimize=True,
         )
-
+        r = NativeRandomSource(seed)
+        decider = MaxDepthDecider(r, g, max_depth=10)
         gp = GeneticProgramming(
-            representation=TreeBasedRepresentation(g, max_depth=10),
+            representation=TreeBasedRepresentation(g, decider=decider),
             problem=objective,
             population_size=population_size,
             budget=EvaluationBudget(population_size * max_generations),
             random=NativeRandomSource(seed),
-            tracker=SingleObjectiveProgressTracker(
+            tracker=ProgressTracker(
                 objective,
                 recorders=[
                     CSVSearchRecorder(csv_path=path, problem=objective, extra_fields={"Seed": lambda t, i, p: seed}),
@@ -108,13 +111,15 @@ class TestCSVCallback:
             minimize=True,
         )
 
+        r = NativeRandomSource(seed)
+        decider = MaxDepthDecider(r, g, max_depth=10)
         gp = GeneticProgramming(
-            representation=TreeBasedRepresentation(g, max_depth=10),
+            representation=TreeBasedRepresentation(g, decider=decider),
             problem=objective,
             population_size=population_size,
             budget=EvaluationBudget(population_size * max_generations),
             random=NativeRandomSource(seed),
-            tracker=SingleObjectiveProgressTracker(
+            tracker=ProgressTracker(
                 objective,
                 recorders=[CSVSearchRecorder(csv_path=path, problem=objective, fields={"Seed": lambda t, i, p: seed})],
             ),

@@ -4,12 +4,7 @@ Genetic Engine
 [![Documentation](https://readthedocs.org/projects/geneticengine/badge/?version=latest)](https://geneticengine.readthedocs.io/en/latest/)
 [![codecov](https://codecov.io/gh/alcides/GeneticEngine/branch/main/graph/badge.svg?token=ZX84SA7IEP)](https://codecov.io/gh/alcides/GeneticEngine)
 
-A hybrid between strongly-typed (STGP) and grammar-guided genetic programming (GGGP).
-
-About GeneticEngine
--------------------
-
-GeneticEngine is a Genetic Programming framework for single- and multi-objective optimization. GeneticEngine allows the user to provide domain knowledge about the shape of the solution (using type annotations) and by defining the fitness function.
+GeneticEngine is a search-based Python library that allows you to describe the structure of your solutions as Python dataclasses and abstract classes, and explores the solution space using different algorithms, such as enumerative search, hill climbing, and several flavors of Genetic Programming.
 
 
 Documentation
@@ -63,13 +58,16 @@ GeneticEngine has been developed at [LASIGE](https://www.lasige.pt), [University
 * [Paulo Santos](https://pcanelas.com/)
 * [Pedro Barbosa](https://www.lasige.di.fc.ul.pt/user/661)
 * [Eduardo Madeira](https://www.lasige.pt/member/jose-eduardo-madeira)
+* [Lishun Su](https://lasige.pt/member/su-lishun/)
+* [Paulo Silva](https://github.com/PauloHS-Silva)
+* [Abhisek Limbu](https://github.com/AbhisekLimbu/AbhisekLimbu)
 
 Acknowledgements
 ----------------
 
 This work was supported by Fundação para a Ciência e Tecnologia (FCT) through:
 
-* [the LASIGE Research Unit](https://www.lasige.pt) (ref. UIDB/00408/2020 and UIDP/00408/2020)
+* [the LASIGE Research Unit](https://www.lasige.pt) (ref. UID/00408/2025)
 * Pedro Barbosa PhD fellowship (SFRH/BD/137062/2018)
 * Guilherme Espada PhD fellowship (UI/BD/151179/2021)
 * Paulo Santos CMU|Portugal PhD fellowship (SFRH/BD/151469/2021)
@@ -91,7 +89,7 @@ Publications
 
 Applications of GeneticEngine
 -----------------------------
-
+* [Semantically Rich Local Dataset Generation for Explainable AI in Genomics](https://www.researchgate.net/publication/381960322_Semantically_Rich_Local_Dataset_Generation_for_Explainable_AI_in_Genomics) at GECCO'24
 * [Comparing Individual Representations in Grammar-Guided Genetic Programming for Glucose Prediction in People with Diabetes](https://www.researchgate.net/publication/371324298_Comparing_Individual_Representations_in_Gram-mar-Guided_Genetic_Programming_for_Glucose_Prediction_in_People_with_Diabetes) at Grammatical Workshop at GECCO'23
 * [Domain-Aware Feature Learning with Grammar-Guided Genetic Programming](https://link.springer.com/chapter/10.1007/978-3-031-29573-7_15) at EuroGP'23
 * [Benchmarking Individual Representation in Grammar-Guided Genetic Programming](https://wwwww.easychair.org/publications/preprint_download/wqrb) at Evo*'22

@@ -5,17 +5,18 @@ from argparse import ArgumentParser
 from polyleven import levenshtein
 
 from geneticengine.algorithms.gp.gp import GeneticProgramming
-from geneticengine.evaluation.budget import AnyOf, EvaluationBudget, TargetFitness
+from geneticengine.evaluation.budget import EvaluationBudget
 from geneticengine.grammar.grammar import Grammar, extract_grammar
 from geneticengine.problems import SingleObjectiveProblem
 from geneticengine.random.sources import NativeRandomSource
+from geneticengine.representations.tree.initializations import MaxDepthDecider
 from geneticengine.representations.tree.treebased import TreeBasedRepresentation
 from geneticengine.grammar.synthetic_grammar import create_arbitrary_grammar
 
 
 def create_target_individual(grammar_seed: int, g: Grammar):
     r = NativeRandomSource(grammar_seed)
-    representation = TreeBasedRepresentation(g, max_depth=g.get_min_tree_depth())
+    representation = TreeBasedRepresentation(g, decider=MaxDepthDecider(r, g, g.get_min_tree_depth()))
     target_individual = representation.create_genotype(r, depth=10)
     individual_phenotype = representation.genotype_to_phenotype(target_individual)
     return individual_phenotype
@@ -46,14 +47,15 @@ def single_run(
     problem = SingleObjectiveProblem(
         fitness_function=fitness_function,
         minimize=True,
+        target=0,
     )
-
+    r = NativeRandomSource(seed)
     alg = GeneticProgramming(
         problem=problem,
-        budget=AnyOf(TargetFitness(0), EvaluationBudget(100)),
-        representation=TreeBasedRepresentation(g, max_depth=g.get_min_tree_depth() + 10),
+        budget=EvaluationBudget(100),
+        representation=TreeBasedRepresentation(g, decider=MaxDepthDecider(r, g, g.get_min_tree_depth() + 10)),
         population_size=10,
-        random=NativeRandomSource(seed),
+        random=r,
         # callbacks=[
         #     ProgressCallback(),
         #     CSVCallback(
@@ -67,7 +69,7 @@ def single_run(
         #     ),
         # ],
     )
-    ind = alg.search()
+    ind = alg.search()[0]
     print(ind)
     print(f"With fitness: {ind.get_fitness(problem)}")
 

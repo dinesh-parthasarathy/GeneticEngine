@@ -1,17 +1,25 @@
-from typing import Any, Iterable
+from typing import Any, Iterable, Generator
 
-from geneticengine.solutions.individual import Individual
-from geneticengine.problems import Problem
-from geneticengine.evaluation.api import Evaluator
+from geneticengine.problems import InvalidFitnessException, Problem
+from geneticengine.evaluation.api import Evaluator, IndT
 
 
 class SequentialEvaluator(Evaluator):
     """Default evaluator for individuals, executes sequentially."""
 
-    def evaluate_async(self, problem: Problem, indivs: Iterable[Individual[Any, Any]]):
-        for individual in indivs:
+    def evaluate_async(
+        self,
+        problem: Problem,
+        individuals: Iterable[IndT],
+    ) -> Generator[IndT, Any, Any]:
+        for individual in individuals:
             if not individual.has_fitness(problem):
-                f = self.eval_single(problem, individual)
-                self.register_evaluation()
+                try:
+                    f = self.eval_single(problem, individual)
+                except InvalidFitnessException:
+                    f = problem.get_invalid_fitness()
                 individual.set_fitness(problem, f)
-            yield individual
+                self.register_evaluation(individual, problem)
+                yield individual
+            else:
+                yield individual

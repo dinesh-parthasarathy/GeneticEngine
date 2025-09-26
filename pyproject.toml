@@ -1,23 +1,39 @@
 [project]
 name = "GeneticEngine"
-version = "0.9.0"
+version = "0.8.7"
 description = "Genetic Programming with Types and Grammars"
 authors = [
-    {name = "Guilherme Espada", email = "gjespada@fc.ul.pt"},
-    {name = "Leon Ingelse", email = "leoningelse@gmail.com"},
-    {name = "Paulo Santos", email = "pacsantos@fc.ul.pt"},
-    {name = "Pedro Barbosa", email = "psbarbosa@ciencias.ulisboa.pt"},
-    {name = "Alcides Fonseca", email = "me@alcidesfonseca.com"}
+    { name = "Alcides Fonseca et al.", email = "me@alcidesfonseca.com" },
 ]
 readme = "Readme.md"
-requires-python = ">=3.9"
-keywords = ["evolutionary computation, genetic programming, regression, machine learning"]
+requires-python = ">=3.10"
+keywords = [
+    "program synthesis", "machine learning", "genetic programming"
+]
 
 classifiers = [
-  "Development Status :: 4 - Beta",
-  "Programming Language :: Python :: 3.9",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11"
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    'dill==0.4.0',
+    'lark==1.2.2',
+    'loguru==0.7.3',
+    'numpy==2.2.6',
+    'palettable==3.3.3',
+    'pandas==2.3.1',
+    'pathos==0.3.4',
+    'polyleven==0.9.0',
+    'pytest==8.4.1',
+    'pytest-benchmark==5.1.0',
+    'scikit-learn==1.6.1',
+    'seaborn==0.13.2',
+    'sympy==1.14.0',
+    'threadpoolctl==3.6.0',
+    'z3-solver==4.15.3.0',
 ]
 
 [project.urls]
@@ -28,14 +44,32 @@ documentation = "https://github.com/alcides/GeneticEngine/"
 [project.license]
 text = "https://opensource.org/licenses/MIT"
 
-[build-system]
-build-backend = 'setuptools.build_meta'
-requires = [
-    'setuptools >= 67.6.0',
+[project.optional-dependencies]
+dev = [
+    "black",
+    "docformatter",
+    "mypy==1.17.1",
+    "pre-commit",
+    "pycln",
+    "pytest",
+    "pytest-codspeed",
+    "pytest-cov",
+    "ruff"
 ]
 
+[build-system]
+build-backend = 'setuptools.build_meta'
+requires = ['setuptools >= 67.6.0']
+
 [tool.setuptools]
-py-modules = ["geneticengine", "geml"]
+py-modules = ["geneticengine", "geml", "examples"]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-data]
+'examples' = ['*.csv']
 
 [tool.docformatter]
 syntax = 'google'
@@ -56,11 +90,6 @@ all = true
 
 [tool.ruff]
 line-length = 120
-
-
-# Enable Pyflakes `E` and `F` codes by default.
-select = ["E", "F"]
-ignore = ["E741", "E501"]
 
 # Exclude a variety of commonly ignored directories.
 exclude = [
@@ -84,21 +113,29 @@ exclude = [
     "node_modules",
     "venv",
 ]
-per-file-ignores = {}
-
-# Allow unused variables when underscore-prefixed.
-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 # Assume Python 3.10.
 target-version = "py310"
 
-[tool.ruff.flake8-import-conventions.aliases]
+[tool.ruff.lint]
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+
+# Enable Pyflakes `E` and `F` codes by default.
+select = ["E", "F"]
+ignore = ["E741", "E501"]
+
+per-file-ignores = {}
+
+
+[tool.ruff.lint.flake8-import-conventions.aliases]
 altair = "alt"
 "matplotlib.pyplot" = "plt"
 numpy = "np"
 pandas = "pd"
 seaborn = "sns"
 
-[tool.ruff.mccabe]
+[tool.ruff.lint.mccabe]
 # Unlike Flake8, default to a complexity level of 10.
 max-complexity = 10

@@ -1,9 +1,8 @@
 from __future__ import annotations
 from typing import Iterator
-
 import numpy as np
 
-from geneticengine.solutions.individual import Individual
+from geneticengine.solutions.individual import PhenotypicIndividual
 from geneticengine.algorithms.gp.structure import GeneticStep
 from geneticengine.problems import Fitness, MultiObjectiveProblem
 from geneticengine.problems import Problem
@@ -32,15 +31,24 @@ class TournamentSelection(GeneticStep):
         evaluator: Evaluator,
         representation: Representation,
         random: RandomSource,
-        population: Iterator[Individual],
+        population: Iterator[PhenotypicIndividual],
         target_size: int,
         generation: int,
-    ) -> Iterator[Individual]:
-        candidates = list(population)
-        evaluator.evaluate(problem, candidates)
+    ) -> Iterator[PhenotypicIndividual]:
+        initial = list(population)
+        candidates : list[PhenotypicIndividual] = list(evaluator.evaluate(problem, initial))
+        if not candidates:
+            yield from initial
+
+        if problem.number_of_objectives() > 1:
+            goal = random.randint(0, problem.number_of_objectives()-1)
+        else:
+            goal = 0
+
         for _ in range(target_size):
             candidates = [random.choice(candidates) for _ in range(self.tournament_size)]
-            winner = max(candidates, key=Individual.key_function(problem))
+
+            winner = max(candidates, key=lambda ind: ind.get_fitness(problem).fitness_components[goal])
             yield winner
 
             if not self.with_replacement:
@@ -67,49 +75,44 @@ class LexicaseSelection(GeneticStep):
         evaluator: Evaluator,
         representation: Representation,
         random: RandomSource,
-        population: Iterator[Individual],
+        population: Iterator[PhenotypicIndividual],
         target_size: int,
         generation: int,
-    ) -> Iterator[Individual]:
+    ) -> Iterator[PhenotypicIndividual]:
         assert isinstance(problem, MultiObjectiveProblem)
-        candidates = list(population)
-        evaluator.evaluate(problem, candidates)
+        candidates = list(evaluator.evaluate(problem, list(population)))
         n_cases = problem.number_of_objectives()
         cases = random.shuffle(list(range(n_cases)))
-        minimize: list[bool]
 
         assert isinstance(problem.minimize, list)
-        minimize = problem.minimize
-        assert isinstance(minimize, list)
-        n_cases = len(candidates[0].get_fitness(problem).fitness_components)
 
         for _ in range(target_size):
-            candidates_to_check = candidates.copy()
+            candidates_to_check: list[PhenotypicIndividual] = candidates.copy()
 
             while len(candidates_to_check) > 1 and cases:
-                new_candidates: list[Individual] = list()
+                new_candidates: list[PhenotypicIndividual] = list()
                 c = cases.pop(0)
 
-                choose_best = min if minimize[c] else max
+                choose_best = min if problem.minimize[c] else max
 
                 best_fitness = choose_best([x.get_fitness(problem).fitness_components[c] for x in candidates_to_check])
                 checking_value = best_fitness
 
                 if self.epsilon:
 
-                    def get_fitness_value(ind: Individual, c: int):
-                        (summary, values) = ind.get_fitness(problem)
-                        return values[c]
+                    def get_fitness_value(ind: PhenotypicIndividual, c: int):
+                        fit = ind.get_fitness(problem)
+                        return fit.fitness_components[c]
 
                     fitness_values = np.array(
                         [get_fitness_value(x, c) for x in candidates_to_check if not np.isnan(get_fitness_value(x, c))],
                     )
                     mad = np.median(np.absolute(fitness_values - np.median(fitness_values)))
-                    checking_value = best_fitness + mad if minimize[c] else best_fitness - mad
+                    checking_value = best_fitness + mad if problem.minimize[c] else best_fitness - mad
 
                 for checking_candidate in candidates_to_check:
                     fitness: Fitness = checking_candidate.get_fitness(problem)
-                    if minimize[c]:
+                    if problem.minimize[c]:
                         add_candidate = fitness.fitness_components[c] <= checking_value
                     else:
                         add_candidate = fitness.fitness_components[c] >= checking_value
@@ -122,3 +125,69 @@ class LexicaseSelection(GeneticStep):
             assert isinstance(winner.get_fitness(problem).fitness_components, list)
             yield winner
             candidates.remove(winner)
+
+
+
+
+
+class InformedDownsamplingSelection(GeneticStep):
+    """
+    Selects individuals using only test cases with highest variance.
+    Faster than standard Lexicase by reducing test case evaluations.
+    """
+
+    def __init__(self, max_sample_size: int = 10, percent: float = 0.1):
+        self.max_sample_size = max_sample_size
+        self.percent = percent
+
+    def iterate(
+        self,
+        problem: Problem,
+        evaluator: Evaluator,
+        representation: Representation,
+        random: RandomSource,
+        population: Iterator[PhenotypicIndividual],
+        target_size: int,
+        generation: int,
+    ) -> Iterator[PhenotypicIndividual]:
+        assert isinstance(problem, MultiObjectiveProblem)
+
+        candidates = list(evaluator.evaluate(problem, list(population)))
+        n_cases = problem.number_of_objectives()
+        n_candidates = len(candidates)
+
+        fitness_matrix = np.array([
+            ind.get_fitness(problem).fitness_components
+            for ind in candidates
+        ])
+
+        case_variances = [
+            (i, np.var(fitness_matrix[:, i], ddof=1)) for i in range(n_cases)
+        ]
+
+        sample_size = min(self.max_sample_size, max(1, int(self.percent * n_cases)))
+        sample_size = min(sample_size, n_cases)
+        case_variances.sort(key=lambda x: x[1], reverse=True)
+        selected_cases = [i for i, _ in case_variances[:sample_size]]
+
+        assert isinstance(problem.minimize, list)
+
+        selected_indices = list(range(n_candidates))
+        for _ in range(target_size):
+            pool_indices = selected_indices.copy()
+
+            for c in selected_cases:
+                scores = fitness_matrix[pool_indices, c]
+                choose_best = np.min if problem.minimize[c] else np.max
+                best_score = choose_best(scores)
+                pool_indices = [
+                    i for i in pool_indices if fitness_matrix[i, c] == best_score
+                ]
+                if len(pool_indices) <= 1:
+                    break
+
+            winner_idx = pool_indices[0] if pool_indices else random.randint(0, len(selected_indices) - 1)
+            winner = candidates[winner_idx] if pool_indices else candidates[winner_idx]
+
+            yield winner
+            selected_indices.remove(winner_idx)
