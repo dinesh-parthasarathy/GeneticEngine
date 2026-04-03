@@ -8,6 +8,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator, check_is_fitted, _fit_context
 from sklearn.exceptions import FitFailedWarning
 from sklearn.metrics import r2_score
+from sklearn.utils.validation import validate_data
 
 from geneticengine.evaluation.budget import SearchBudget, TimeBudget
 from geneticengine.evaluation.recorder import SearchRecorder
@@ -80,13 +81,15 @@ class PredictorWrapper(GEBaseEstimator):
 class GeneticEngineEstimator(GEBaseEstimator):
     max_time: float | int
 
-    def __init__(self, max_time: float | int = 1, seed: int = 0):
+    def __init__(self, max_time: float | int = 1, seed: int = 0, weight_features_by_correlation: bool = False):
         self.max_time = max_time
-        self.seed = 0
+        self.seed = seed
+        self.weight_features_by_correlation = weight_features_by_correlation
 
     _parameter_constraints = {
         "max_time": [float, int],
         "seed": [int],
+        "weight_features_by_correlation": [bool],
     }
 
     def get_population(self) -> list[BaseEstimator]:
@@ -106,7 +109,7 @@ class GeneticEngineEstimator(GEBaseEstimator):
 
     def predict(self, X):
         check_is_fitted(self)
-        X = self._validate_data(X, accept_sparse=False, reset=False)
+        X = validate_data(self, X, accept_sparse=False, reset=False)
         feature_names, data = self.prepare_inputs(X)
         return forward_dataset(self._best_individual[0], data)
 
@@ -116,7 +119,7 @@ class GeneticEngineEstimator(GEBaseEstimator):
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y):
 
-        X, y = self._validate_data(X, y, accept_sparse=False)
+        X, y = validate_data(self, X, y, accept_sparse=False)
 
         random = NativeRandomSource(self.seed)
 
@@ -176,3 +179,28 @@ class GeneticEngineEstimator(GEBaseEstimator):
         budget: SearchBudget,
         population_recorder: PopulationRecorder,
     ) -> list[Individual] | None: ...
+
+
+    def correlation_weights(self, feature_names: list[str], data, target) -> list[float]:
+
+        def safe_corrcoef(xv, yv) -> float:
+            with np.errstate(all="ignore"):
+                x = np.asarray(xv, dtype=float)
+                y = np.asarray(yv, dtype=float)
+                if len(x) < 2:
+                    return 0.0
+                c = np.corrcoef(x, y)
+                # For 2x2 corr matrix, off-diagonal holds the correlation
+                try:
+                    corr = float(c[0, 1])
+                except Exception:
+                    corr = 0.0
+                if not np.isfinite(corr):
+                    return 0.0
+                return corr
+
+        def wrapper(corr_value: float) -> float:
+            # Higher absolute correlation -> smaller weight (bias search), add epsilon
+            return 1 - abs(corr_value) + 0.00001
+
+        return [wrapper(safe_corrcoef(data[:, i], target)) for i in range(len(feature_names))]
