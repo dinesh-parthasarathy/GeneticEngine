@@ -64,7 +64,7 @@ class SLURMEvaluator(Evaluator):
             return any(state in {"PENDING", "RUNNING"} for state in states)
         """Wait for SLURM jobs to complete."""
         while array_still_running(jobid):
-            time.sleep(2000)
+            time.sleep(5)
 
     def _aggregate_results(self):
         """Aggregate fitness results from all SLURM jobs."""
