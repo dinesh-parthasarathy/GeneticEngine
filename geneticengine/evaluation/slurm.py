@@ -18,15 +18,27 @@ class SLURMEvaluator(Evaluator):
         self.output_parser = output_parser
         self.num_jobs = 0
     def evaluate_async(self, problem: Problem, individuals: Iterable[Individual]):
-        # Save each individual's representation to a file for SLURM processing
-        individuals = list(individuals)
-        for i, ind in enumerate(individuals):
+        all_individuals = list(individuals)
+
+        # Split: already evaluated vs. new individuals that need SLURM jobs
+        cached = [ind for ind in all_individuals if ind.has_fitness(problem)]
+        new_individuals = [ind for ind in all_individuals if not ind.has_fitness(problem)]
+
+        # Yield already-evaluated individuals immediately
+        for ind in cached:
+            yield ind
+
+        if not new_individuals:
+            return
+
+        # Save each new individual's representation to a file for SLURM processing
+        for i, ind in enumerate(new_individuals):
             ind_str = self.program_generator(ind)
             file_name = f"individual_{i}"
             with open(f"{self.output_dir}/{file_name}", "w") as f:
                 f.write(ind_str)
 
-        self.num_jobs = len(individuals)
+        self.num_jobs = len(new_individuals)
 
         # Submit an array job
         result = subprocess.run(
@@ -43,12 +55,12 @@ class SLURMEvaluator(Evaluator):
         print("All SLURM jobs completed.")
         # Aggregate results
         fitness_results = self._aggregate_results()
-        for ind, fitness in zip(individuals, fitness_results):
+        for ind, fitness in zip(new_individuals, fitness_results):
             ind.set_fitness(problem, fitness)
             self.register_evaluation(ind, problem)
             yield ind
 
-        print("All individuals evaluated.")
+        print(f"{len(new_individuals)} new individual(s) evaluated via SLURM.")
         print(f"Fitness results: {fitness_results}")
     def _wait_for_jobs(self, jobid: int):
         def array_still_running(jobid: int) -> bool:
