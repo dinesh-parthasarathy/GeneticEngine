@@ -16,7 +16,7 @@ class SLURMEvaluator(Evaluator):
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.program_generator = program_generator
         self.output_parser = output_parser
-        self.num_jobs = 0
+
     def evaluate_async(self, problem: Problem, individuals: Iterable[Individual]):
         all_individuals = list(individuals)
 
@@ -38,11 +38,11 @@ class SLURMEvaluator(Evaluator):
             with open(f"{self.output_dir}/{file_name}", "w") as f:
                 f.write(ind_str)
 
-        self.num_jobs = len(new_individuals)
+        num_jobs = len(new_individuals)
 
-        # Submit an array job
+        # Submit an array job with dynamic array size
         result = subprocess.run(
-            ["sbatch", self.slurm_script],
+            ["sbatch", f"--array=0-{num_jobs - 1}", self.slurm_script],
             capture_output=True,
             text=True,
             check=True
@@ -54,13 +54,13 @@ class SLURMEvaluator(Evaluator):
         self._wait_for_jobs(jobid)
         print("All SLURM jobs completed.")
         # Aggregate results
-        fitness_results = self._aggregate_results()
+        fitness_results = self._aggregate_results(num_jobs)
         for ind, fitness in zip(new_individuals, fitness_results):
             ind.set_fitness(problem, fitness)
             self.register_evaluation(ind, problem)
             yield ind
 
-        print(f"{len(new_individuals)} new individual(s) evaluated via SLURM.")
+        print(f"{num_jobs} new individual(s) evaluated via SLURM.")
         print(f"Fitness results: {fitness_results}")
     def _wait_for_jobs(self, jobid: int):
         def array_still_running(jobid: int) -> bool:
@@ -78,10 +78,10 @@ class SLURMEvaluator(Evaluator):
         while array_still_running(jobid):
             time.sleep(5)
 
-    def _aggregate_results(self):
-        """Aggregate fitness results from all SLURM jobs."""
+    def _aggregate_results(self, num_jobs: int):
+        """Aggregate fitness results from all SLURM jobs. output_parser returns the list of objective values."""
         fitness_results = []
-        for i in range(self.num_jobs):
+        for i in range(num_jobs):
             result_file = f"{self.output_dir}/individual_out_{i}"
-            fitness_results.append(Fitness([self.output_parser(result_file)]))
+            fitness_results.append(Fitness(self.output_parser(result_file)))
         return fitness_results

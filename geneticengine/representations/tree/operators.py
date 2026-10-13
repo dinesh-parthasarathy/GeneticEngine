@@ -45,8 +45,8 @@ class GrowInitializer(PopulationInitializer):
     """All individuals are created expanding productions until a maximum depth,
     but without the requirement of reaching that depth."""
 
-    def __init__(self):
-        pass
+    def __init__(self, max_depth: int = 100):
+        self.max_depth = max_depth
 
     def initialize(
         self,
@@ -60,7 +60,7 @@ class GrowInitializer(PopulationInitializer):
         assert isinstance(representation, TreeBasedRepresentation)
         generated = 0
         current_failures = 0
-        depth = 1
+        depth = self.max_depth
         while generated < target_size:
             try:
                 yield PhenotypicIndividual(

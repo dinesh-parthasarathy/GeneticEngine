@@ -97,7 +97,7 @@ class SimpleGP:
         self.problem = self.process_problem(fitness_function, minimize, target_fitness)
         budget = self.build_budget(max_time, max_evaluations)
         representation_internal = self.process_representation(representation, grammar, max_depth)
-        population_initializer = self.process_population_initializer(initial_population)
+        population_initializer = self.process_population_initializer(initial_population, max_depth)
 
         step = self.build_step(
             population_size,
@@ -174,14 +174,14 @@ class SimpleGP:
         else:
             return EvaluationBudget(max_evaluations)
 
-    def process_population_initializer(self, initial_population: list[Any] | None = None):
+    def process_population_initializer(self, initial_population: list[Any] | None = None, max_depth: int = 100):
         if initial_population:
             return InjectInitialPopulationWrapper(
                 [genotype for genotype in initial_population],
-                GrowInitializer(),
+                GrowInitializer(max_depth),
             )
         else:
-            return GrowInitializer()
+            return GrowInitializer(max_depth)
 
     def build_step(
         self,
