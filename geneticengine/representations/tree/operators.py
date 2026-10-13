@@ -1,10 +1,12 @@
 from __future__ import annotations
-from typing import Iterator
+from typing import Callable, Iterator
 
 from geneticengine.exceptions import GeneticEngineError
 from geneticengine.representations.tree.initializations import (
     FullDecider,
     MaxDepthDecider,
+    PTC2Decider,
+    SynthesisDecider,
 )
 from geneticengine.solutions.individual import Individual, PhenotypicIndividual
 from geneticengine.algorithms.gp.structure import PopulationInitializer
@@ -118,13 +120,54 @@ class RampedHalfAndHalfInitializer(PopulationInitializer):
         representation: Representation,
         random: RandomSource,
         target_size: int,
+        **kwargs,
     ) -> Iterator[PhenotypicIndividual]:
         assert isinstance(representation, TreeBasedRepresentation)
-        for _ in range(target_size):
-
+        grammar = representation.grammar
+        min_depth = min(grammar.get_min_tree_depth(), self.max_depth)
+        half = target_size // 2
+        for i in range(target_size):
+            depth = self.max_depth if i < half else random.randint(min_depth, self.max_depth)
+            decider: SynthesisDecider
+            if random.random_bool():
+                # FullDecider generates trees of depth exactly max_depth - 1.
+                decider = FullDecider(random, grammar, max_depth=depth + 1)
+            else:
+                decider = MaxDepthDecider(random, grammar, max_depth=depth)
             yield PhenotypicIndividual(
                 representation.create_genotype(
                     random,
+                    decider=decider,
+                ),
+                representation=representation,
+            )
+
+
+class PTC2Initializer(PopulationInitializer):
+    """Initialize trees using a sampled Probabilistic Tree Creation 2 size.
+
+    The sampled size guides expansion; grammar minimums and synthesis
+    bookkeeping can make the final annotated node count differ slightly.
+    """
+
+    def __init__(self, size_distribution: Callable[[RandomSource], int] | int):
+        self.size_distribution = size_distribution
+
+    def initialize(
+        self,
+        problem: Problem,
+        representation: Representation,
+        random: RandomSource,
+        target_size: int,
+        **kwargs,
+    ) -> Iterator[PhenotypicIndividual]:
+        assert isinstance(representation, TreeBasedRepresentation)
+        for _ in range(target_size):
+            requested = self.size_distribution(random) if callable(self.size_distribution) else self.size_distribution
+            yield PhenotypicIndividual(
+                representation.create_genotype(
+                    random,
+                    decider=PTC2Decider(random, representation.grammar, requested),
                 ),
                 representation=representation,
             )

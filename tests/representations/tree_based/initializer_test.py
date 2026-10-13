@@ -11,10 +11,16 @@ from geneticengine.grammar.grammar import extract_grammar
 from geneticengine.random.sources import NativeRandomSource
 from geneticengine.representations.tree.initializations import (
     FullDecider,
+    MaxDepthDecider,
     PositionIndependentGrowDecider,
     ProgressivelyTerminalDecider,
 )
-from geneticengine.representations.tree.operators import FullInitializer, GrowInitializer
+from geneticengine.representations.tree.operators import (
+    FullInitializer,
+    GrowInitializer,
+    PTC2Initializer,
+    RampedHalfAndHalfInitializer,
+)
 from geneticengine.representations.tree.treebased import TreeBasedRepresentation
 from geneticengine.grammar.metahandlers.floats import FloatRange
 from geneticengine.grammar.metahandlers.ints import IntervalRange
@@ -53,6 +59,22 @@ class C(A):
     two: A
 
 
+@abstract
+class Expr:
+    pass
+
+
+@dataclass
+class Leaf(Expr):
+    pass
+
+
+@dataclass
+class Branch(Expr):
+    left: Expr
+    right: Expr
+
+
 class TestInitializers:
     def test_full(self):
         target_size = 10
@@ -84,6 +106,52 @@ class TestInitializers:
         for ind in population:
             assert ind.get_phenotype().gengy_distance_to_term <= target_depth
 
+    def test_ramped_half_and_half_respects_max_depth(self):
+        """Regression test for https://github.com/alcides/GeneticEngine/issues/259.
+
+        RampedHalfAndHalfInitializer used to ignore its max_depth argument:
+        initialize() called representation.create_genotype() without a
+        depth-bounded decider, so individuals were generated with the
+        representation's default decider instead.
+        """
+        target_size = 20
+        target_depth = 3
+
+        g = extract_grammar([Leaf, Branch], Expr)
+        f = RampedHalfAndHalfInitializer(max_depth=target_depth)
+        p = SingleObjectiveProblem(lambda x: 3)
+        rs = NativeRandomSource(5)
+        repr = TreeBasedRepresentation(grammar=g, decider=MaxDepthDecider(rs, g, max_depth=10))
+
+        population = list(f.initialize(p, repr, rs, target_size))
+        assert len(population) == target_size
+        depths = [ind.get_phenotype().gengy_distance_to_term for ind in population]
+        assert all(
+            depth <= target_depth for depth in depths
+        ), f"RampedHalfAndHalfInitializer(max_depth={target_depth}) produced trees with depths {depths}"
+
+    def test_ramped_half_and_half_ramps_depths(self):
+        """The first half of the population is generated at the maximum depth,
+        and the other half is ramped between the grammar's minimum depth and
+        the maximum depth."""
+        target_size = 50
+        target_depth = 5
+
+        g = extract_grammar([Leaf, Branch], Expr)
+        f = RampedHalfAndHalfInitializer(max_depth=target_depth)
+        p = SingleObjectiveProblem(lambda x: 3)
+        rs = NativeRandomSource(5)
+        repr = TreeBasedRepresentation(grammar=g, decider=MaxDepthDecider(rs, g, max_depth=10))
+
+        population = list(f.initialize(p, repr, rs, target_size))
+        depths = [ind.get_phenotype().gengy_distance_to_term for ind in population]
+        assert all(depth <= target_depth for depth in depths)
+        # Some individuals (e.g. those built with the full method at the
+        # maximum depth) must actually reach the maximum depth.
+        assert max(depths) == target_depth
+        # Ramping must produce a variety of depths, not a single one.
+        assert len(set(depths)) > 1
+
     def test_progressive(self):
         target_size = 10
 
@@ -97,3 +165,28 @@ class TestInitializers:
         assert len(population) == target_size
         for ind in population:
             assert ind.get_phenotype()
+
+    def test_ptc2_respects_target_size(self):
+        g = extract_grammar([Leaf, Branch], Expr)
+        initializer = PTC2Initializer(15)
+        problem = SingleObjectiveProblem(lambda x: 3)
+        random = NativeRandomSource(5)
+        representation = TreeBasedRepresentation(grammar=g, decider=MaxDepthDecider(random, g, 10))
+
+        population = list(initializer.initialize(problem, representation, random, 25))
+
+        assert len(population) == 25
+        assert all(ind.get_phenotype().gengy_nodes >= 1 for ind in population)
+        assert len({ind.get_phenotype().gengy_nodes for ind in population}) > 1
+
+    def test_ptc2_uses_size_distribution(self):
+        g = extract_grammar([Leaf, Branch], Expr)
+        initializer = PTC2Initializer(lambda random: random.randint(1, 3))
+        problem = SingleObjectiveProblem(lambda x: 3)
+        random = NativeRandomSource(8)
+        representation = TreeBasedRepresentation(grammar=g, decider=MaxDepthDecider(random, g, 10))
+
+        population = list(initializer.initialize(problem, representation, random, 20))
+
+        assert all(ind.get_phenotype() for ind in population)
+        assert max(ind.get_phenotype().gengy_nodes for ind in population) >= 1

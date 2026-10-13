@@ -58,6 +58,9 @@ run_example examples/benchmarks/classification.py
 run_example examples/benchmarks/classification_lexicase.py
 run_example examples/benchmarks/domino.py
 run_example examples/benchmarks/game_of_life_vectorial.py
+run_example examples/benchmarks/ihtc.py
+run_example examples/benchmarks/rdf_constraints.py
+run_example examples/benchmarks/neuroevolution.py
 run_example examples/benchmarks/mario_level.py
 run_example examples/benchmarks/pymax.py
 run_example examples/benchmarks/regression.py
@@ -65,6 +68,12 @@ run_example examples/benchmarks/regression_lexicase.py
 run_example examples/benchmarks/santafe.py
 run_example examples/benchmarks/string_match.py
 run_example examples/benchmarks/vectorialgp.py
+
+run_example examples/mathematical_programming/fixed_egyptian_fractions.py
+run_example examples/mathematical_programming/rational_egyptian_fractions.py
+run_example examples/mathematical_programming/reptend_fraction.py
+run_example examples/mathematical_programming/incremented_reciprocal.py
+run_example examples/mathematical_programming/pells_equation.py
 
 
 run_example examples/progsys/Number_IO.py
