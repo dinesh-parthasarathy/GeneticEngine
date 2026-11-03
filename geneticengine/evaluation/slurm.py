@@ -40,6 +40,10 @@ class SLURMEvaluator(Evaluator):
 
         num_jobs = len(new_individuals)
 
+        # Remove results of previous generations, so that stale files can never be read as new results
+        for old_result in self.output_dir.glob("individual_out_*"):
+            old_result.unlink()
+
         # Submit an array job with dynamic array size
         result = subprocess.run(
             ["sbatch", f"--array=0-{num_jobs - 1}", self.slurm_script],
@@ -62,26 +66,59 @@ class SLURMEvaluator(Evaluator):
 
         print(f"{num_jobs} new individual(s) evaluated via SLURM.")
         print(f"Fitness results: {fitness_results}")
+    POLL_SECONDS = 5
+    MAX_FAILED_POLLS = 120  # consecutive polls without an answer from Slurm before giving up (~10 min)
+
+    def _queue_state(self, jobid: int) -> bool | None:
+        """Whether any element of the array job is still in the queue (squeue needs no accounting database).
+        Returns None if Slurm could not be asked."""
+        result = subprocess.run(
+            ["squeue", "-h", "-j", str(jobid), "-o", "%T"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return bool(result.stdout.strip())
+        if "Invalid job id" in result.stderr:
+            return False  # the job has left the queue
+        return None
+
+    def _accounting_state(self, jobid: int) -> bool | None:
+        """Same question answered by sacct. Returns None if sacct fails or knows nothing about the job yet."""
+        result = subprocess.run(
+            ["sacct", "-j", str(jobid), "-X", "--noheader", "--parsable2", "--format=State"],
+            capture_output=True,
+            text=True,
+        )
+        states = {line.strip().split()[0] for line in result.stdout.splitlines() if line.strip()}
+        if result.returncode != 0 or not states:
+            return None
+        return any(state in {"PENDING", "RUNNING", "COMPLETING", "REQUEUED", "SUSPENDED"} for state in states)
+
     def _wait_for_jobs(self, jobid: int):
-        def array_still_running(jobid: int) -> bool:
-            """
-            Return True if any element of the array job is still PENDING or RUNNING.
-            """
-            result = subprocess.run(
-                ["sacct", "-j", str(jobid), "-X", "--noheader", "--parsable2", "--format=State"],
-                capture_output=True,
-                text=True
-            )
-            states = {line.strip().split()[0] for line in result.stdout.splitlines() if line.strip()}
-            return any(state in {"PENDING", "RUNNING"} for state in states)
-        """Wait for SLURM jobs to complete."""
-        while array_still_running(jobid):
-            time.sleep(5)
+        """Wait for SLURM jobs to complete. A failure to reach Slurm is never taken as completion."""
+        failed_polls = 0
+        while True:
+            running = self._queue_state(jobid)
+            if running is None:
+                running = self._accounting_state(jobid)
+            if running is None:
+                failed_polls += 1
+                if failed_polls >= self.MAX_FAILED_POLLS:
+                    raise RuntimeError(f"Could not get the state of SLURM job {jobid} from squeue or sacct.")
+            else:
+                failed_polls = 0
+                if not running:
+                    return
+            time.sleep(self.POLL_SECONDS)
 
     def _aggregate_results(self, num_jobs: int):
         """Aggregate fitness results from all SLURM jobs. output_parser returns the list of objective values."""
         fitness_results = []
         for i in range(num_jobs):
             result_file = f"{self.output_dir}/individual_out_{i}"
+            if not os.path.exists(result_file):
+                print(f"WARNING: no output for individual {i} (task lost?); it is scored as a failed run.")
+                open(result_file, "w").close()
             fitness_results.append(Fitness(self.output_parser(result_file)))
         return fitness_results
