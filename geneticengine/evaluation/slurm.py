@@ -9,8 +9,9 @@ from geneticengine.solutions.individual import Individual
 import subprocess
 class SLURMEvaluator(Evaluator):
 
-    def __init__(self, output_dir: str, slurm_script: str, program_generator, output_parser=None):
+    def __init__(self, output_dir: str, slurm_script: str, program_generator, output_parser=None, max_concurrent: int | None = 50):
         super().__init__()
+        self.max_concurrent = max_concurrent  # max. array tasks (= whole nodes) running at the same time (None: no limit)
         self.output_dir = Path(output_dir)
         self.slurm_script = slurm_script
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -45,8 +46,9 @@ class SLURMEvaluator(Evaluator):
             old_result.unlink()
 
         # Submit an array job with dynamic array size
+        throttle = f"%{self.max_concurrent}" if self.max_concurrent else ""
         result = subprocess.run(
-            ["sbatch", f"--array=0-{num_jobs - 1}", self.slurm_script],
+            ["sbatch", f"--array=0-{num_jobs - 1}{throttle}", self.slurm_script],
             capture_output=True,
             text=True,
             check=True
