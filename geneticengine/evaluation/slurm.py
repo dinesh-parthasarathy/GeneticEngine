@@ -32,6 +32,7 @@ class SLURMEvaluator(Evaluator):
         if not new_individuals:
             return
 
+        t_start = time.time()
         # Save each new individual's representation to a file for SLURM processing
         for i, ind in enumerate(new_individuals):
             ind_str = self.program_generator(ind)
@@ -42,8 +43,10 @@ class SLURMEvaluator(Evaluator):
         num_jobs = len(new_individuals)
 
         # Remove results of previous generations, so that stale files can never be read as new results
-        for old_result in self.output_dir.glob("individual_out_*"):
-            old_result.unlink()
+        for pattern in ("individual_out_*", "individual_time_*"):
+            for old_result in self.output_dir.glob(pattern):
+                old_result.unlink()
+        t_written = time.time()
 
         # Submit an array job with dynamic array size
         throttle = f"%{self.max_concurrent}" if self.max_concurrent else ""
@@ -55,12 +58,15 @@ class SLURMEvaluator(Evaluator):
         )
         jobid = int(result.stdout.strip().split()[-1])  # Extract job ID from the output
 
+        t_submitted = time.time()
         print(f"Submitted SLURM array job with ID: {jobid}")
         # Wait for SLURM jobs to complete
         self._wait_for_jobs(jobid)
+        t_done = time.time()
         print("All SLURM jobs completed.")
         # Aggregate results
         fitness_results = self._aggregate_results(num_jobs)
+        self._record_profile(jobid, num_jobs, t_start, t_written, t_submitted, t_done, time.time())
         for ind, fitness in zip(new_individuals, fitness_results):
             ind.set_fitness(problem, fitness)
             self.register_evaluation(ind, problem)
@@ -68,6 +74,38 @@ class SLURMEvaluator(Evaluator):
 
         print(f"{num_jobs} new individual(s) evaluated via SLURM.")
         print(f"Fitness results: {fitness_results}")
+    # One dict per evaluated generation (phase durations in seconds), for profiling the search.
+    profile_log: list = []
+
+    def _record_profile(self, jobid, num_jobs, t_start, t_written, t_submitted, t_done, t_parsed):
+        """Splits the time of one generation into phases, using the timestamps array_job.sh writes per task."""
+        tasks = []
+        for i in range(num_jobs):
+            try:
+                fields = (self.output_dir / f"individual_time_{i}").read_text().split()
+                tasks.append([float(x) for x in fields[:4]])
+            except (OSError, ValueError, IndexError):
+                pass  # task left no timestamps (lost, or script without profiling)
+        row = {
+            "job_id": jobid, "new_individuals": num_jobs, "tasks_with_timing": len(tasks),
+            "write_files_s": t_written - t_start,
+            "sbatch_s": t_submitted - t_written,
+            "wait_total_s": t_done - t_submitted,
+            "parse_s": t_parsed - t_done,
+        }
+        if tasks:
+            first_start = min(t[0] for t in tasks)
+            last_end = max(t[3] for t in tasks)
+            row.update({
+                "queue_wait_s": first_start - t_submitted,     # submit -> first task owns a node
+                "task_span_s": last_end - first_start,          # first start -> last end (waves of tasks wait for nodes here)
+                "detect_lag_s": t_done - last_end,              # last task ended -> optimizer noticed (polling, squeue)
+                "node_seconds": sum(t[3] - t[0] for t in tasks),    # exclusive node time used by the task scripts
+                "mpirun_seconds": sum(t[2] - t[1] for t in tasks),  # of which mpirun + ij
+                "longest_task_s": max(t[3] - t[0] for t in tasks),
+            })
+        SLURMEvaluator.profile_log.append(row)
+
     POLL_SECONDS = 5
     MAX_FAILED_POLLS = 120  # consecutive polls without an answer from Slurm before giving up (~10 min)
 
